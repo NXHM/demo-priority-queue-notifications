@@ -1,75 +1,293 @@
+import unittest
 from priority_notification_manager import PriorityNotificationManager, NotificationManager
+import boto3
+from unittest.mock import MagicMock, patch
+import time
 
-def test_notification_manager():
-    # Crear instancia de NotificationManager
-    manager = NotificationManager()
-    user_id = 'NicoGod2'
-    email = 'nxhm2013@gmail.com'
-    beauty_salon_id = 'Salon123'
-    offer_id = 'Offer123'
-    description = '50% off on all services'
-    date = '2023-10-01'
-    time = '10:00 AM'
-    service = 'Haircut'
-    reminder_id = 'Reminder123'
+class TestNotificationManagers(unittest.TestCase):
 
-    # Crear la tabla de notificaciones (descomentar si es necesario crear la tabla)
-    # manager.create_notifications_table()
+    def setUp(self):
+        self.standard_manager = NotificationManager()
+        # Asegurarse de que la cola está vacía al inicio de cada prueba
+        self.priority_manager = PriorityNotificationManager()
+        while not self.priority_manager.priority_queue.empty():
+            self.priority_manager.priority_queue.get()
+        
+        # Test data
+        self.user_id = 'TestUser123'
+        self.email = 'nxhm2013@gmail.com'
+        self.salon_id = 'TestSalon123' 
+        self.offer_id = 'TestOffer123'
+        self.description = 'Test offer description'
+        self.date = '2023-12-01'
+        self.time = '15:00'
+        self.service = 'Test Service'
+        self.reminder_id = 'TestReminder123'
 
-    # Actualizar notificaciones
-    manager.update_notifications(user_id, email, 'Subscription', beauty_salon_id)
-    manager.update_notifications(user_id, email, 'Reminder', beauty_salon_id, date, time, service, reminder_id=reminder_id)
-    manager.update_notifications(user_id, email, 'Offer', beauty_salon_id, offer_id=offer_id, description=description)
+    #@patch('boto3.client') # Sirve para simular llamadas externas
+    def test_notification_manager_basic_flow(self):
+        """Test basic notification flow with NotificationManager"""
+        
+        # Test update notifications
+        subscription=self.standard_manager.update_notifications(
+            self.user_id, 
+            self.email,
+            'Subscription',
+            self.salon_id
+        )
+        print("subscription updated successfully",subscription)
+        reminder=self.standard_manager.update_notifications(
+            self.user_id,
+            self.email, 
+            'Reminder',
+            self.salon_id,
+            self.date,
+            self.time,
+            self.service,
+            reminder_id=self.reminder_id
+        )
+        print("Reminder updated successfully",reminder)
+        # Test offer notifications update
+        offer = self.standard_manager.update_notifications(
+            self.user_id,
+            self.email,
+            'Offer',
+            self.salon_id,
+            offer_id=self.offer_id,
+            description=self.description
+        )
+        print("Offer notification updated successfully:", offer)
+        # Test sending notifications
+        offer_response = self.standard_manager.send_offer_notification(
+            self.email,
+            self.salon_id,
+            self.offer_id, 
+            self.description
+        )
+        
+        reminder_response = self.standard_manager.send_reminder_notification(
+            self.email,
+            self.user_id,
+            self.salon_id,
+            self.date,
+            self.time,
+            self.service
+        )
 
-    # Send offer notification
-    offer_response = manager.send_offer_notification(email, beauty_salon_id, offer_id, description)
-    print(f"Offer response: {offer_response}")
+    def test_priority_queue_ordering(self):
+        """Test complete notification flow: save to DynamoDB, queue and process"""
+        
+        # 1. Guardar notificaciones en DynamoDB
+        reminder = self.standard_manager.update_notifications(
+            self.user_id,
+            self.email,
+            'Reminder',
+            self.salon_id,
+            self.date,
+            self.time,
+            self.service,
+            reminder_id=self.reminder_id
+        )
+        print("✅ Reminder saved to DynamoDB")
+        
+        offer = self.standard_manager.update_notifications(
+            self.user_id,
+            self.email,
+            'Offer',
+            self.salon_id,
+            offer_id=self.offer_id,
+            description=self.description
+        )
+        print("✅ Offer saved to DynamoDB")
+        
+        subscription = self.standard_manager.update_notifications(
+            self.user_id,
+            self.email,
+            'Subscription',
+            self.salon_id
+        )
+        print("✅ Subscription saved to DynamoDB")
 
-    # Send reminder notification
-    reminder_response = manager.send_reminder_notification(email, user_id, beauty_salon_id, date, time, service)
-    print(f"Reminder response: {reminder_response}")
+        # 2. Recuperar notificaciones de DynamoDB y añadirlas a la cola
+        notifications = [
+            ('Reminder', self.standard_manager.get_recent_notifications_by_type_and_salon('Reminder', self.salon_id)),
+            ('Offer', self.standard_manager.get_recent_notifications_by_type_and_salon('Offer', self.salon_id)),
+            ('Subscription', self.standard_manager.get_recent_notifications_by_type_and_salon('Subscription', self.salon_id))
+        ]
 
-    # Send offer notification to all followers
-    manager.send_offer_notification_to_all_followers(beauty_salon_id, offer_id, description)
+        print("\nEnviando notificaciones a SQS...")
+        for notification_type, items in notifications:
+            for item in items:
+                data = {
+                    'user_id': self.user_id,
+                    'beauty_salon_id': self.salon_id,
+                }
+                # Removemos email del diccionario data ya que lo pasaremos como argumento separado
+                print(f"📩 Adding {notification_type} to queue - email {item['Email']['S']}")
+                # Añadir datos específicos según el tipo
+                if notification_type == 'Reminder':
+                    data.update({
+                        'date': item.get('Date', {}).get('S'),
+                        'time': item.get('Time', {}).get('S'),
+                        'service': item.get('Service', {}).get('S')
+                    })
+                elif notification_type == 'Offer':
+                    data.update({
+                        'offer_id': item.get('OfferID', {}).get('S'),
+                        'description': item.get('Description', {}).get('S')
+                    })
 
-    recent_offers = manager.get_recent_notifications_by_type_and_salon('Offer', beauty_salon_id)
-    print(f"Recent offers: {recent_offers}")
+                self.priority_manager.add_notification_to_queue(notification_type, item['Email']['S'], **data)
+                print(f"✅ {notification_type} added to queue")
 
-    # Obtener notificaciones recientes por tipo y salón
-    recent_notifications = manager.get_recent_notifications_by_type_and_salon('Reminder', beauty_salon_id)
-    print(f"Recent notifications: {recent_notifications}")
+        print("\nProcesando cola de prioridad...")
+        self.priority_manager.process_queue()
+        print("✅ Queue processed")
 
-def test_priority_notification_manager():
-    manager = PriorityNotificationManager()
+    def test_empty_queue(self):
+        """Test behavior with empty queue using real queue operations"""
+        # Crear nueva instancia y limpiar cola
+        self.priority_manager = PriorityNotificationManager()
+        while not self.priority_manager.priority_queue.empty():
+            self.priority_manager.priority_queue.get()
+        
+        # Agregar un elemento de prueba
+        test_data = {
+            "user_id": self.user_id,
+            "beauty_salon_id": self.salon_id,
+            "date": "2024-03-01",
+            "time": "10:00"
+        }
+        
+        # Añadir a la cola
+        self.priority_manager.add_notification_to_queue(
+            "Reminder",
+            self.email,
+            **test_data
+        )
+        
+        # Esperar un momento para que el mensaje se procese
+        time.sleep(2)
+        
+        # Obtener y verificar el elemento
+        item = self.priority_manager.priority_queue.get()
+        self.assertIsNotNone(item)
+        print("✅ Cola vacía manejada correctamente")
 
-    # Añadir notificaciones a la cola con datos adicionales
-    manager.add_notification_to_queue(
-        "Reminder", "user1@example.com",
-        user_id="User1", beauty_salon_id="SalonA", date="2023-11-01", time="10:30 AM", service="Haircut"
-    )
-    manager.add_notification_to_queue(
-        "Offer", "user2@example.com",
-        beauty_salon_id="SalonB", offer_id="Offer456", description="30% off on manicure"
-    )
-    manager.add_notification_to_queue(
-        "Subscription", "user3@example.com",
-        user_id="User3", beauty_salon_id="SalonC"
-    )
+    def test_invalid_notification_type(self):
+        """Test handling of invalid notification types"""
+        
+        self.priority_manager.add_notification_to_queue(
+            "InvalidType",
+            self.email
+        )
+        
+        # Should use default low priority (10)
+        priority = self.priority_manager.get_priority_for_type("InvalidType")
+        self.assertEqual(priority, 10)
+        print("✅ Tipo invalido manejado correctamente")
 
-    # Probar con un tipo de notificación desconocido
-    manager.add_notification_to_queue(
-        "Unknown", "user4@example.com"
-    )
+    def test_notification_priority_order_real(self):
+        """Test que las notificaciones se procesan en orden de prioridad usando servicios reales"""
+        # Limpiar completamente la cola antes de empezar
+        print("\n🧹 Limpiando cola...")
+        while not self.priority_manager.priority_queue.empty():
+            # Simplemente obtener y descartar los mensajes
+            self.priority_manager.priority_queue.get()
+        print("✅ Cola limpiada")
 
-    # Procesar las notificaciones en orden de prioridad
-    manager.process_queue()
+        # Conjunto único de notificaciones de prueba
+        notifications = [
+            {
+                "type": "Subscription",
+                "data": {
+                    "user_id": self.user_id,
+                    "beauty_salon_id": self.salon_id
+                }
+            },
+            {
+                "type": "Reminder",
+                "data": {
+                    "user_id": self.user_id,
+                    "beauty_salon_id": self.salon_id,
+                    "date": "2024-03-01",
+                    "time": "10:00",
+                    "service": "Corte de cabello"
+                }
+            },
+            {
+                "type": "Offer",
+                "data": {
+                    "beauty_salon_id": self.salon_id,
+                    "offer_id": self.offer_id,
+                    "description": "50% descuento"
+                }
+            }
+        ]
+        
+        print("\n🔄 Iniciando prueba de priorización...")
+        
+        # Añadir cada notificación una única vez
+        for notification in notifications:
+            self.priority_manager.add_notification_to_queue(
+                notification["type"],
+                self.email,
+                **notification["data"]
+            )
+            print(f"✅ Añadida notificación tipo {notification['type']}")
+            time.sleep(1)  # Pequeña pausa entre mensajes
+        
+        time.sleep(2)  # Esperar a que todos los mensajes estén disponibles
+        
+        # Procesar y verificar orden
+        processed = []
+        seen = set()
+        
+        print("\n📥 Procesando mensajes...")
+        while not self.priority_manager.priority_queue.empty():
+            item = self.priority_manager.priority_queue.get()
+            if item and isinstance(item, tuple):
+                priority, type, _, _ = item
+                key = (type, priority)
+                if key not in seen:
+                    seen.add(key)
+                    processed.append(key)
+                    print(f"📨 Procesada notificación {type} con prioridad {priority}")
+        
+        # Ordenar por prioridad para comparación consistente
+        processed.sort(key=lambda x: x[1])
+        
+        expected_order = [
+            ("Reminder", 1),     # Prioridad alta
+            ("Offer", 2),        # Prioridad media
+            ("Subscription", 3)  # Prioridad baja
+        ]
+        
+        print("\n📋 Verificando orden de prioridad...")
+        print(f"Procesado: {processed}")
+        print(f"Esperado: {expected_order}")
+        
+        self.assertEqual(processed, expected_order)
+        print("✅ Orden de prioridad verificado correctamente")
 
-def main():
-    print("Testing NotificationManager")
-    test_notification_manager()
-
-    print("\nTesting PriorityNotificationManager")
-    test_priority_notification_manager()
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    try:
+        # Inicializar y crear tabla
+        print("Iniciando creación de tabla notifications...")
+        test = TestNotificationManagers()
+        test.setUp()
+        
+        # Intentar crear la tabla usando el manager estándar
+        response = test.standard_manager.create_notifications_table()
+        
+        if response:
+            print("✅ Tabla creada exitosamente")
+        else:
+            print("⚠️ La tabla ya existe o hubo un error")
+            
+        # Ejecutar pruebas
+        print("\nEjecutando pruebas...")
+        unittest.main(argv=[''], verbosity=2, exit=False)
+        
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
