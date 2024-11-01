@@ -122,7 +122,8 @@ class NotificationManager:
                 'Timestamp': {'S': timestamp},
                 'Email': {'S': email},
                 'TypeBehavior': {'S': type_to_behavior},  
-                'Active': {'BOOL': True}
+                'Active': {'BOOL': True},
+                'Status': {'S': 'Pendiente'}  # Agregar estado 'Pendiente'
             }
 
             if beauty_salon_id is not None:
@@ -180,8 +181,12 @@ class NotificationManager:
                     }
                 }
             )
+            # Actualizar el estado a 'Enviado'
+            self.update_notification_status(email, 'Offer', beauty_salon_id, 'Enviado')
             return response
         except ClientError as e:
+            # Actualizar el estado a 'Error'
+            self.update_notification_status(email, 'Offer', beauty_salon_id, 'Error')
             return {"status": "error", "message": str(e)}
 
     def send_reminder_notification(self, email, user_id, beauty_salon_id, date, time, service):
@@ -199,9 +204,38 @@ class NotificationManager:
                     }
                 }
             )
+            # Actualizar el estado a 'Enviado'
+            self.update_notification_status(email, 'Reminder', beauty_salon_id, 'Enviado')
             return response
         except ClientError as e:
+            # Actualizar el estado a 'Error'
+            self.update_notification_status(email, 'Reminder', beauty_salon_id, 'Error')
             return {"status": "error", "message": str(e)}
+
+    def update_notification_status(self, email, type_to_behavior, beauty_salon_id, status):
+        user_key = f"{email}#{type_to_behavior}#{beauty_salon_id}"
+        # Obtener la notificación más reciente
+        response = self.dynamodb.query(
+            TableName=self.table_name,
+            KeyConditionExpression='UserID_TypeBehavior_BeautySalonID = :key',
+            ExpressionAttributeValues={
+                ':key': {'S': user_key}
+            },
+            ScanIndexForward=False,
+            Limit=1
+        )
+        if response.get('Items'):
+            timestamp = response['Items'][0]['Timestamp']['S']
+            self.dynamodb.update_item(
+                TableName=self.table_name,
+                Key={
+                    'UserID_TypeBehavior_BeautySalonID': {'S': user_key},
+                    'Timestamp': {'S': timestamp}
+                },
+                UpdateExpression='SET #s = :status',
+                ExpressionAttributeNames={'#s': 'Status'},
+                ExpressionAttributeValues={':status': {'S': status}}
+            )
 
     def send_unsubscription_notification(self, email, user_id, beauty_salon_id):
         try:
@@ -230,8 +264,10 @@ class NotificationManager:
                 KeyConditionExpression='TypeBehavior = :type_behavior AND BeautySalonID = :beauty_salon_id',
                 ExpressionAttributeValues={
                     ':type_behavior': {'S': 'Subscription'},
-                    ':beauty_salon_id': {'S': beauty_salon_id}
-                }
+                    ':beauty_salon_id': {'S': beauty_salon_id},
+                    ':status': {'S': 'Pendiente'}
+                },
+                FilterExpression='Status = :status'
             )
             
             for item in response.get('Items', []):
@@ -251,8 +287,10 @@ class NotificationManager:
                 KeyConditionExpression='TypeBehavior = :type_behavior AND BeautySalonID = :beauty_salon_id',
                 ExpressionAttributeValues={
                     ':type_behavior': {'S': type_behavior},
-                    ':beauty_salon_id': {'S': beauty_salon_id}
-                }
+                    ':beauty_salon_id': {'S': beauty_salon_id},
+                    ':status': {'S': 'Pendiente'}
+                },
+                FilterExpression='Status = :status'
             )
             return response.get('Items', [])
         except self.dynamodb.exceptions.ValidationException as e:
