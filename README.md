@@ -33,37 +33,27 @@ El sistema utiliza:
 
 ## Comparación de Alternativas
 
-### AWS SQS vs RabbitMQ
+### AWS SQS vs RabbitMQ vs Apache Kafka
 
 - **AWS SQS**:
+- **Ventajas**:
   - ✅ Serverless y totalmente administrado
   - ✅ Integración nativa con AWS
-  - ✅ Escalado automático
+  - ✅ Escalado automático (no gestión se servidores)
   - ✅ Capa gratuita disponible
+  - ✅ Más simple de implementar
+  - ✅ Es distribuido
+- **Desventajas**:
   - ❌ Menor control sobre la infraestructura
+  - ❌ Mayor Latencia
 
 - **RabbitMQ**:
+- **Ventajas**:
   - ✅ Mayor control y personalización
   - ✅ Mejor rendimiento en local
+- **Desventajas**:
   - ❌ Requiere mantenimiento
   - ❌ Necesita infraestructura propia
-
-### Comparación de Alternativas
-
-#### AWS SQS vs Redis vs Apache Kafka
-
-**AWS SQS**
-
-- **Ventajas**:
-    - ✅ No requiere gestión de servidores
-    - ✅ Mejor para sistemas distribuidos
-    - ✅ Garantía de entrega de mensajes
-    - ✅ Más simple de implementar
-    - ✅ Mejor para cargas moderadas
-    - ✅ Menor costo operativo
-- **Desventajas**:
-    - ❌ Latencia ligeramente mayor
-    - ❌ Menos adecuado para big data
 
 **Redis**
 
@@ -91,18 +81,18 @@ El sistema utiliza:
 - Robustez para sistemas distribuidos
 - Simplicidad de implementación
 - Costo operativo
-- Adecuación para big data
 - Mantenimiento y recursos necesarios
 
 **Decisión**:
 Se elige AWS SQS.
 
 **Justificación**:
-AWS SQS es preferido debido a su facilidad de uso en sistemas distribuidos y su capacidad de garantizar la entrega de mensajes sin necesidad de gestionar servidores, a pesar de tener una latencia ligeramente mayor. Además, su simplicidad de implementación y menor costo operativo lo hacen más adecuado para cargas moderadas, mientras que Redis y Apache Kafka requieren más mantenimiento y recursos, aunque ofrecen ventajas en latencia y manejo de grandes volúmenes respectivamente.
+AWS SQS ha sido seleccionado debido a su facilidad de uso en sistemas distribuidos y su capacidad de garantizar la entrega de mensajes sin necesidad de gestionar servidores, a pesar de tener una latencia ligeramente mayor. Además, su simplicidad de implementación y menor costo operativo lo hacen más adecuado para cargas moderadas, mientras que Redis, RabbitMQ y Apache Kafka requieren más mantenimiento y recursos, aunque ofrecen ventajas en latencia y personalización.
 
 ## Flujo Detallado del Sistema
 
 ### 1. Flujo de Notificaciones
+
 1. El usuario genera una notificación (Reminder, Offer o Subscription)
 2. La notificación se guarda en DynamoDB a través de NotificationManager
 3. Se recupera la notificación de DynamoDB
@@ -115,7 +105,8 @@ AWS SQS es preferido debido a su facilidad de uso en sistemas distribuidos y su 
 
 ### 2. Clases Principales
 
-#### NotificationManager
+#### NotificationManager - Clase padre
+
 - **Propósito**: Gestión básica de notificaciones y persistencia
 - **Funcionalidades**:
   - Crear/actualizar notificaciones en DynamoDB
@@ -128,7 +119,8 @@ AWS SQS es preferido debido a su facilidad de uso en sistemas distribuidos y su 
   - `send_reminder_notification()`: Envía recordatorios
   - `get_recent_notifications_by_type_and_salon()`: Consulta notificaciones
 
-#### PriorityNotificationManager
+#### PriorityNotificationManager - Clase Hija
+
 - **Propósito**: Gestión de prioridades de notificaciones
 - **Hereda de**: NotificationManager
 - **Funcionalidades**:
@@ -141,6 +133,7 @@ AWS SQS es preferido debido a su facilidad de uso en sistemas distribuidos y su 
   - `get_priority_for_type()`: Asigna prioridades
 
 #### DistributedPriorityQueue
+
 - **Propósito**: Interfaz con AWS SQS
 - **Funcionalidades**:
   - Gestionar mensajes en SQS
