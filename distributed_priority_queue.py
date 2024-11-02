@@ -98,3 +98,17 @@ class DistributedPriorityQueue:
         except ClientError as e:
             print(f"Error checking queue status: {e}")
             return True  # Asumimos cola vacía en caso de error
+
+    def purge(self):
+        try:
+            # Verificar última purga
+            last_purge = getattr(self, 'last_purge', 0)
+            current_time = time.time()
+            if current_time - last_purge < 60:
+                print("⚠️ La cola ya fue purgada recientemente. Espera antes de purgar de nuevo.")
+                return
+            self.sqs.purge_queue(QueueUrl=self.queue_url)
+            print("✅ Cola SQS purgada exitosamente.")
+            self.last_purge = current_time
+        except ClientError as e:
+            print(f"Error purgando la cola SQS: {e}")

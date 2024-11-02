@@ -164,6 +164,7 @@ AWS SQS ha sido seleccionado debido a su facilidad de uso en sistemas distribuid
 - https://docs.aws.amazon.com/decision-guides/latest/sns-or-sqs-or-eventbridge/sns-or-sqs-or-eventbridge.html
 - https://aws.amazon.com/es/sqs/pricing/
 - https://docs.aws.amazon.com/es_es/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html
+- https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs/client/purge_queue.html
 
 # Info extra 
 - https://youtu.be/UPkOsXKG4ns?si=yjcgrBtPtFW0aaW_

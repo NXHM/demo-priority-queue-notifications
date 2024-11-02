@@ -8,10 +8,9 @@ class TestNotificationManagers(unittest.TestCase):
 
     def setUp(self):
         self.standard_manager = NotificationManager()
-        # Asegurarse de que la cola está vacía al inicio de cada prueba
         self.priority_manager = PriorityNotificationManager()
-        while not self.priority_manager.priority_queue.empty():
-            self.priority_manager.priority_queue.get()
+        # Purgar la cola SQS al inicio
+        self.priority_manager.priority_queue.purge()
         
         # Test data
         self.user_id = 'TestUser123'
@@ -116,6 +115,7 @@ class TestNotificationManagers(unittest.TestCase):
         ]
 
         print("\nEnviando notificaciones a SQS...")
+        print("\n📥 Cantidad de Notificaciones:", len(notifications))
         for notification_type, items in notifications:
             for item in items:
                 data = {
@@ -189,6 +189,12 @@ class TestNotificationManagers(unittest.TestCase):
 
     def test_notification_priority_order_real(self):
         """Test que las notificaciones se procesan en orden de prioridad usando servicios reales"""
+        # Purgar la cola SQS antes de la prueba
+        print("\n🧹 Purga de cola antes de la prueba...")
+        time.sleep(65) # Espera 60s porque es necesario esperar para poder purgar la cola
+        self.priority_manager.priority_queue.purge()
+        print("✅ Cola purgada")
+
         # Limpiar completamente la cola antes de empezar
         print("\n🧹 Limpiando cola...")
         while not self.priority_manager.priority_queue.empty():
@@ -240,20 +246,7 @@ class TestNotificationManagers(unittest.TestCase):
         time.sleep(2)  # Esperar a que todos los mensajes estén disponibles
         
         # Procesar y verificar orden
-        processed = []
-        seen = set()
-        
-        print("\n📥 Procesando mensajes...")
-        while not self.priority_manager.priority_queue.empty():
-            item = self.priority_manager.priority_queue.get()
-            if item and isinstance(item, tuple):
-                priority, type, _, _ = item
-                key = (type, priority)
-                if key not in seen:
-                    seen.add(key)
-                    processed.append(key)
-                    print(f"📨 Procesada notificación {type} con prioridad {priority}")
-        
+        processed = self.priority_manager.process_queue()
         # Ordenar por prioridad para comparación consistente
         processed.sort(key=lambda x: x[1])
         

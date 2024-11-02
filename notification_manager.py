@@ -281,20 +281,27 @@ class NotificationManager:
 
     def get_recent_notifications_by_type_and_salon(self, type_behavior, beauty_salon_id):
         try:
+            # Consultar solo las notificaciones pendientes
             response = self.dynamodb.query(
-                IndexName='TypeBehavior-BeautySalonID-index',  
                 TableName=self.table_name,
+                IndexName='TypeBehavior-BeautySalonID-index',
                 KeyConditionExpression='TypeBehavior = :type_behavior AND BeautySalonID = :beauty_salon_id',
                 ExpressionAttributeValues={
                     ':type_behavior': {'S': type_behavior},
                     ':beauty_salon_id': {'S': beauty_salon_id},
-                    ':status': {'S': 'Pendiente'}
+                    ':status': {'S': 'Pendiente'},  # Solo notificaciones pendientes
+                    ':active': {'BOOL': True}  # Solo notificaciones activas
                 },
-                FilterExpression='Status = :status'
+                FilterExpression='#s = :status AND Active = :active',
+                ExpressionAttributeNames={
+                    '#s': 'Status'
+                }
             )
-            return response.get('Items', [])
-        except self.dynamodb.exceptions.ValidationException as e:
-            print(f"Validation error while getting recent notifications: {e}")
+            
+            items = response.get('Items', [])
+            print(f"Encontradas {len(items)} notificaciones pendientes de tipo {type_behavior}")
+            return items
+            
         except ClientError as e:
             print(f"Client error while getting recent notifications: {e}")
         except Exception as e:
