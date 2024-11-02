@@ -165,6 +165,8 @@ AWS SQS ha sido seleccionado debido a su facilidad de uso en sistemas distribuid
 - https://aws.amazon.com/es/sqs/pricing/
 - https://docs.aws.amazon.com/es_es/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html
 - https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sqs/client/purge_queue.html
+- https://github.com/boto/botocore/issues/458#issuecomment-1358117993
+- https://joelmccoy.medium.com/python-and-boto3-performance-adventures-synchronous-vs-asynchronous-aws-api-interaction-22f625ec6909
 
 # Info extra 
 - https://youtu.be/UPkOsXKG4ns?si=yjcgrBtPtFW0aaW_

@@ -254,7 +254,7 @@ class NotificationManager:
             print(f"- Salón ID: {beauty_salon_id}")
             print(f"- Key compuesta: {user_key}")
             print(f"- Nuevo estado: {status}")
-            
+            time.sleep(3)
             # Obtener la notificación más reciente
             response = self.dynamodb.query(
                 TableName=self.table_name,
@@ -266,7 +266,7 @@ class NotificationManager:
                 Limit=1
             )
             print(f"- Búsqueda de notificación: {'Items' in response}")
-            
+            print(f"- Respuesta de búsqueda: {response}")
             if response.get('Items'):
                 timestamp = response['Items'][0]['Timestamp']['S']
                 print(f"- Encontrada notificación con timestamp: {timestamp}")
