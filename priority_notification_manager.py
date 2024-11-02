@@ -1,5 +1,6 @@
 from notification_manager import NotificationManager
 from distributed_priority_queue import DistributedPriorityQueue  # Importar la cola de prioridad distribuida
+import time  # Importar time para delays en reintentos
 
 class PriorityNotificationManager(NotificationManager):
     def __init__(self):
@@ -16,29 +17,29 @@ class PriorityNotificationManager(NotificationManager):
         # Asignar la prioridad en función del tipo de notificación
         return priority_map.get(notification_type, 10)  # Por defecto, prioridad baja si no se encuentra el tipo
 
-    def add_notification_to_queue(self, notification_type, email, **kwargs):
+    def add_notification_to_queue(self, notification_type, user_id, email, **kwargs):
         # Verificar si la notificación ya está en la cola para evitar duplicados
-        existing = self.check_existing_notification(notification_type, email, **kwargs)
+        existing = self.check_existing_notification(notification_type, user_id, **kwargs)
         if existing:
-            print(f"⚠️ Notificación {notification_type} para {email} ya está en la cola.")
+            print(f"⚠️ Notificación {notification_type} para {user_id} ya está en la cola.")
             return
         priority = self.get_priority_for_type(notification_type)
-        self.priority_queue.put((priority, notification_type, email, kwargs))
+        self.priority_queue.put((priority, notification_type, user_id, email, kwargs))
         print(f"✅ {notification_type} añadido a la cola")
 
-    def check_existing_notification(self, notification_type, email, **kwargs):
+    def check_existing_notification(self, notification_type, user_id, **kwargs):
         try:
             beauty_salon_id = kwargs.get('beauty_salon_id')
             if not beauty_salon_id:
                 return False
 
-            # Verificar si la notificación ya fue enviada
-            user_key = f"{email}#{notification_type}#{beauty_salon_id}"
+            # Verificar si la notificación ya fue enviada usando la clave compuesta correcta
+            composite_key = f"{user_id}#{notification_type}#{beauty_salon_id}"
             response = self.dynamodb.query(
                 TableName=self.table_name,
                 KeyConditionExpression='UserID_TypeBehavior_BeautySalonID = :key',
                 ExpressionAttributeValues={
-                    ':key': {'S': user_key},
+                    ':key': {'S': composite_key},
                     ':enviado': {'S': 'Enviado'}
                 },
                 FilterExpression='#s = :enviado',
@@ -49,7 +50,6 @@ class PriorityNotificationManager(NotificationManager):
                 Limit=1
             )
             
-            # Si encontramos una notificación ya enviada, no la procesamos de nuevo
             return len(response.get('Items', [])) > 0
             
         except Exception as e:
@@ -58,48 +58,94 @@ class PriorityNotificationManager(NotificationManager):
 
     def process_queue(self):
         processed_items = []
+        print("\n🔄 Iniciando procesamiento de cola...")
+        
         while not self.priority_queue.empty():
             message = self.priority_queue.get()
             if message is None:
                 continue
                 
-            priority, notification_type, email, data = message
+            priority, notification_type, user_id, email, data = message
+            print(f"\n📨 Procesando mensaje:")
+            print(f"- Tipo: {notification_type}")
+            print(f"- Prioridad: {priority}")
+            print(f"- Usuario: {user_id}")
+            print(f"- Email: {email}")
+            print(f"- Datos: {data}")
             
             # Verificar si la notificación ya fue enviada antes de procesarla
-            if self.check_existing_notification(notification_type, email, **data):
-                print(f"⚠️ Notificación {notification_type} para {email} ya fue enviada anteriormente")
+            if self.check_existing_notification(notification_type, user_id, **data):
+                print(f"⚠️ Notificación {notification_type} para {user_id} ya fue enviada anteriormente")
                 continue
                 
             processed_items.append((notification_type, priority))
             
-            # Procesar según tipo
-            if notification_type == "Reminder":
-                self.send_reminder_notification(email, **data)
-            elif notification_type == "Offer":
-                self.send_offer_notification(email, **data)
-            elif notification_type == "Subscription":
-                print(f"Subscription processed for {email}")
-                
-            print(f"Processed {notification_type} with priority {priority}")
+            try:
+                # Procesar según tipo
+                if notification_type == "Reminder":
+                    print(f"\n📅 Enviando recordatorio...")
+                    self.send_reminder_notification(user_id, email, **data)
+                elif notification_type == "Offer":
+                    print(f"\n🏷️ Enviando oferta...")
+                    self.send_offer_notification(user_id, email, **data)
+                elif notification_type == "Subscription":
+                    print(f"\n📫 Procesando suscripción...")
+                    print(f"Subscription processed for {user_id}")
+                    
+                print(f"✅ Procesado {notification_type} con prioridad {priority}")
+            except Exception as e:
+                print(f"❌ Error procesando notificación: {str(e)}")
             
+        print(f"\n✅ Procesamiento de cola completado. Items procesados: {len(processed_items)}")
         return processed_items
 
-    def send_reminder_notification(self, email, **data):
-        # Llamar al método de la clase base para enviar recordatorios
-        super().send_reminder_notification(
-            email,
-            user_id=data.get("user_id"),
-            beauty_salon_id=data.get("beauty_salon_id"),
-            date=data.get("date"),
-            time=data.get("time"),
-            service=data.get("service")
-        )
+    def send_reminder_notification(self, user_id, email, **data):
+        max_retries = 3
+        retry_delay = 2  # segundos
+        attempt = 0
+        while attempt < max_retries:
+            try:
+                # Llamar al método de la clase base para enviar recordatorios
+                super().send_reminder_notification(
+                    email,
+                    user_id,  # Pasar user_id directamente
+                    beauty_salon_id=data.get("beauty_salon_id"),
+                    date=data.get("date"),
+                    time_str=data.get("time"),  # Agregar esta línea
+                    service=data.get("service")
+                )
+                return  # Salir si el envío fue exitoso
+            except Exception as e:
+                attempt += 1
+                print(f"❌ Error enviando recordatorio (Intento {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    print(f"🔄 Volviendo a intentar en {retry_delay} segundos...")
+                    time.sleep(retry_delay)
+                else:
+                    print("❌ Se alcanzó el número máximo de reintentos para enviar el recordatorio.")
+                    raise
 
-    def send_offer_notification(self, email, **data):
-        # Llamar al método de la clase base para enviar ofertas
-        super().send_offer_notification(
-            email,
-            beauty_salon_id=data.get("beauty_salon_id"),
-            offer_id=data.get("offer_id"),
-            description=data.get("description")
-        )
+    def send_offer_notification(self, user_id, email, **data):
+        max_retries = 3
+        retry_delay = 2  # segundos
+        attempt = 0
+        while attempt < max_retries:
+            try:
+                # Llamar al método de la clase base para enviar ofertas
+                super().send_offer_notification(
+                    user_id,  # Pasar user_id directamente
+                    email,
+                    beauty_salon_id=data.get("beauty_salon_id"),
+                    offer_id=data.get("offer_id"),
+                    description=data.get("description")
+                )
+                return  # Salir si el envío fue exitoso
+            except Exception as e:
+                attempt += 1
+                print(f"❌ Error enviando oferta (Intento {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    print(f"🔄 Volviendo a intentar en {retry_delay} segundos...")
+                    time.sleep(retry_delay)
+                else:
+                    print("❌ Se alcanzó el número máximo de reintentos para enviar la oferta.")
+                    raise

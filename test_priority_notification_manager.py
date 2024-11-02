@@ -1,4 +1,5 @@
 import unittest
+import uuid  # Importar el módulo uuid
 from priority_notification_manager import PriorityNotificationManager, NotificationManager
 import boto3
 from unittest.mock import MagicMock, patch
@@ -12,30 +13,59 @@ class TestNotificationManagers(unittest.TestCase):
         # Purgar la cola SQS al inicio
         self.priority_manager.priority_queue.purge()
         
-        # Test data
-        self.user_id = 'TestUser123'
+        # Generar user_id y salon_id únicos
+        self.user_id = f'TestUser_{uuid.uuid4()}'  # Generar user_id único
         self.email = 'nxhm2013@gmail.com'
-        self.salon_id = 'TestSalon123' 
-        self.offer_id = 'TestOffer123'
+        self.salon_id = f'TestSalon_{uuid.uuid4()}'  # Generar salon_id único
+        self.offer_id = f'TestOffer_{uuid.uuid4()}'
         self.description = 'Test offer description'
         self.date = '2023-12-01'
         self.time = '15:00'
         self.service = 'Test Service'
-        self.reminder_id = 'TestReminder123'
+        self.reminder_id = f'TestReminder_{uuid.uuid4()}'
 
-    #@patch('boto3.client') # Sirve para simular llamadas externas
+        # Limpiar datos de prueba previos en DynamoDB
+        self._clean_dynamodb()
+
+    def tearDown(self):
+        # Limpiar datos de prueba después de las pruebas
+        self._clean_dynamodb()
+
+    def _clean_dynamodb(self):
+        try:
+            response = self.standard_manager.dynamodb.scan(
+                TableName=self.standard_manager.table_name,
+                FilterExpression="begins_with(UserID_TypeBehavior_BeautySalonID, :prefix)",
+                ExpressionAttributeValues={
+                    ":prefix": {"S": "TestUser_"}
+                }
+            )
+            items = response.get('Items', [])
+            for item in items:
+                self.standard_manager.dynamodb.delete_item(
+                    TableName=self.standard_manager.table_name,
+                    Key={
+                        'UserID_TypeBehavior_BeautySalonID': item['UserID_TypeBehavior_BeautySalonID'],
+                        'Timestamp': item['Timestamp']
+                    }
+                )
+            print(f"✅ Limpieza de DynamoDB completada. {len(items)} items eliminados.")
+        except Exception as e:
+            print(f"❌ Error limpiando DynamoDB: {str(e)}")
+
     def test_notification_manager_basic_flow(self):
         """Test basic notification flow with NotificationManager"""
         
         # Test update notifications
-        subscription=self.standard_manager.update_notifications(
+        subscription = self.standard_manager.update_notifications(
             self.user_id, 
             self.email,
             'Subscription',
             self.salon_id
         )
-        print("subscription updated successfully",subscription)
-        reminder=self.standard_manager.update_notifications(
+        print("subscription updated successfully", subscription)
+
+        reminder = self.standard_manager.update_notifications(
             self.user_id,
             self.email, 
             'Reminder',
@@ -45,7 +75,8 @@ class TestNotificationManagers(unittest.TestCase):
             self.service,
             reminder_id=self.reminder_id
         )
-        print("Reminder updated successfully",reminder)
+        print("Reminder updated successfully", reminder)
+
         # Test offer notifications update
         offer = self.standard_manager.update_notifications(
             self.user_id,
@@ -56,13 +87,16 @@ class TestNotificationManagers(unittest.TestCase):
             description=self.description
         )
         print("Offer notification updated successfully:", offer)
+
         # Test sending notifications
         offer_response = self.standard_manager.send_offer_notification(
+            self.user_id,
             self.email,
             self.salon_id,
             self.offer_id, 
             self.description
         )
+        print("Offer notification response:", offer_response)
         
         reminder_response = self.standard_manager.send_reminder_notification(
             self.email,
@@ -72,6 +106,7 @@ class TestNotificationManagers(unittest.TestCase):
             self.time,
             self.service
         )
+        print("Reminder notification response:", reminder_response)
 
     def test_priority_queue_ordering(self):
         """Test complete notification flow: save to DynamoDB, queue and process"""
@@ -107,7 +142,7 @@ class TestNotificationManagers(unittest.TestCase):
         )
         print("✅ Subscription saved to DynamoDB")
 
-        # 2. Recuperar notificaciones de DynamoDB y añadirlas a la cola
+        # 2. Recuperar notificaciones y añadirlas a la cola
         notifications = [
             ('Reminder', self.standard_manager.get_recent_notifications_by_type_and_salon('Reminder', self.salon_id)),
             ('Offer', self.standard_manager.get_recent_notifications_by_type_and_salon('Offer', self.salon_id)),
@@ -115,15 +150,16 @@ class TestNotificationManagers(unittest.TestCase):
         ]
 
         print("\nEnviando notificaciones a SQS...")
-        print("\n📥 Cantidad de Notificaciones:", len(notifications))
+        total_notifications = sum(len(items) for _, items in notifications)
+        print(f"\n📥 Cantidad de Notificaciones: {total_notifications}")
         for notification_type, items in notifications:
             for item in items:
+                # Extraer user_id de la clave compuesta
+                user_id = item['UserID_TypeBehavior_BeautySalonID']['S'].split('#')[0]
                 data = {
-                    'user_id': self.user_id,
                     'beauty_salon_id': self.salon_id,
                 }
-                # Removemos email del diccionario data ya que lo pasaremos como argumento separado
-                print(f"📩 Adding {notification_type} to queue - email {item['Email']['S']}")
+                
                 # Añadir datos específicos según el tipo
                 if notification_type == 'Reminder':
                     data.update({
@@ -137,12 +173,33 @@ class TestNotificationManagers(unittest.TestCase):
                         'description': item.get('Description', {}).get('S')
                     })
 
-                self.priority_manager.add_notification_to_queue(notification_type, item['Email']['S'], **data)
-                print(f"✅ {notification_type} added to queue")
+                self.priority_manager.add_notification_to_queue(
+                    notification_type, 
+                    user_id,  # Pasar user_id explícitamente
+                    item['Email']['S'], 
+                    **data
+                )
+                print(f"✅ {notification_type} added to queue for user {user_id}")
 
         print("\nProcesando cola de prioridad...")
-        self.priority_manager.process_queue()
+        processed = self.priority_manager.process_queue()
         print("✅ Queue processed")
+
+        # Ordenar por prioridad para comparación consistente
+        processed.sort(key=lambda x: x[1])
+        
+        expected_order = [
+            ("Reminder", 1),     # Prioridad alta
+            ("Offer", 2),        # Prioridad media
+            ("Subscription", 3)  # Prioridad baja
+        ]
+        
+        print("\n📋 Verificando orden de prioridad...")
+        print(f"Procesado: {processed}")
+        print(f"Esperado: {expected_order}")
+        
+        self.assertEqual(processed, expected_order)
+        print("✅ Orden de prioridad verificado correctamente")
 
     def test_empty_queue(self):
         """Test behavior with empty queue using real queue operations"""
@@ -153,15 +210,15 @@ class TestNotificationManagers(unittest.TestCase):
         
         # Agregar un elemento de prueba
         test_data = {
-            "user_id": self.user_id,
             "beauty_salon_id": self.salon_id,
             "date": "2024-03-01",
             "time": "10:00"
         }
         
-        # Añadir a la cola
+        # Añadir a la cola pasando 'user_id' y 'email' correctamente
         self.priority_manager.add_notification_to_queue(
             "Reminder",
+            self.user_id,
             self.email,
             **test_data
         )
@@ -177,8 +234,10 @@ class TestNotificationManagers(unittest.TestCase):
     def test_invalid_notification_type(self):
         """Test handling of invalid notification types"""
         
+        # Añadir 'user_id' y 'email' faltantes
         self.priority_manager.add_notification_to_queue(
             "InvalidType",
+            self.user_id,
             self.email
         )
         
@@ -207,14 +266,12 @@ class TestNotificationManagers(unittest.TestCase):
             {
                 "type": "Subscription",
                 "data": {
-                    "user_id": self.user_id,
                     "beauty_salon_id": self.salon_id
                 }
             },
             {
                 "type": "Reminder",
                 "data": {
-                    "user_id": self.user_id,
                     "beauty_salon_id": self.salon_id,
                     "date": "2024-03-01",
                     "time": "10:00",
@@ -233,14 +290,15 @@ class TestNotificationManagers(unittest.TestCase):
         
         print("\n🔄 Iniciando prueba de priorización...")
         
-        # Añadir cada notificación una única vez
+        # Añadir cada notificación pasando 'user_id' y 'email'
         for notification in notifications:
             self.priority_manager.add_notification_to_queue(
                 notification["type"],
+                self.user_id,  # Pasar user_id explícitamente
                 self.email,
                 **notification["data"]
             )
-            print(f"✅ Añadida notificación tipo {notification['type']}")
+            print(f"✅ Añadida notificación tipo {notification['type']} para usuario {self.user_id}")
             time.sleep(1)  # Pequeña pausa entre mensajes
         
         time.sleep(2)  # Esperar a que todos los mensajes estén disponibles
