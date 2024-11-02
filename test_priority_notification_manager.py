@@ -25,7 +25,7 @@ class TestNotificationManagers(unittest.TestCase):
         self.reminder_id = f'TestReminder_{uuid.uuid4()}'
 
         # Limpiar datos de prueba previos en DynamoDB
-        self._clean_dynamodb()
+        #self._clean_dynamodb()
 
     def tearDown(self):
         # Limpiar datos de prueba después de las pruebas
@@ -181,23 +181,20 @@ class TestNotificationManagers(unittest.TestCase):
                 )
                 print(f"✅ {notification_type} added to queue for user {user_id}")
 
-        print("\nProcesando cola de prioridad...")
+        print("\nProcesando colas de prioridad...")
         processed = self.priority_manager.process_queue()
-        print("✅ Queue processed")
+        print("✅ Colas procesadas")
 
-        # Ordenar por prioridad para comparación consistente
-        processed.sort(key=lambda x: x[1])
-        
         expected_order = [
-            ("Reminder", 1),     # Prioridad alta
-            ("Offer", 2),        # Prioridad media
-            ("Subscription", 3)  # Prioridad baja
+            ("Reminder", 'high'),     # Prioridad alta
+            ("Offer", 'medium'),      # Prioridad media
+            ("Subscription", 'low')   # Prioridad baja
         ]
-        
+
         print("\n📋 Verificando orden de prioridad...")
         print(f"Procesado: {processed}")
         print(f"Esperado: {expected_order}")
-        
+
         self.assertEqual(processed, expected_order)
         print("✅ Orden de prioridad verificado correctamente")
 
@@ -306,12 +303,12 @@ class TestNotificationManagers(unittest.TestCase):
         # Procesar y verificar orden
         processed = self.priority_manager.process_queue()
         # Ordenar por prioridad para comparación consistente
-        processed.sort(key=lambda x: x[1])
+        #processed.sort(key=lambda x: x[1])
         
         expected_order = [
-            ("Reminder", 1),     # Prioridad alta
-            ("Offer", 2),        # Prioridad media
-            ("Subscription", 3)  # Prioridad baja
+            ("Reminder", 'high'),     # Prioridad alta
+            ("Offer", 'medium'),        # Prioridad media
+            ("Subscription", 'low')  # Prioridad baja
         ]
         
         print("\n📋 Verificando orden de prioridad...")

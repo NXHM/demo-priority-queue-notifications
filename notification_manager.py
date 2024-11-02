@@ -254,7 +254,6 @@ class NotificationManager:
             print(f"- Salón ID: {beauty_salon_id}")
             print(f"- Key compuesta: {user_key}")
             print(f"- Nuevo estado: {status}")
-            time.sleep(3)
             # Obtener la notificación más reciente
             response = self.dynamodb.query(
                 TableName=self.table_name,

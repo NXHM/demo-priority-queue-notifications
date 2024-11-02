@@ -23,9 +23,17 @@ class PriorityNotificationManager(NotificationManager):
         if existing:
             print(f"⚠️ Notificación {notification_type} para {user_id} ya está en la cola.")
             return
-        priority = self.get_priority_for_type(notification_type)
-        self.priority_queue.put((priority, notification_type, user_id, email, kwargs))
-        print(f"✅ {notification_type} añadido a la cola")
+        priority_level = self.get_priority_level(notification_type)
+        self.priority_queue.put(priority_level, (notification_type, user_id, email, kwargs))
+        print(f"✅ {notification_type} añadido a la cola '{priority_level}'")
+
+    def get_priority_level(self, notification_type):
+        priority_map = {
+            "Reminder": "high",
+            "Offer": "medium",
+            "Subscription": "low"
+        }
+        return priority_map.get(notification_type, "low")
 
     def check_existing_notification(self, notification_type, user_id, **kwargs):
         try:
@@ -58,45 +66,49 @@ class PriorityNotificationManager(NotificationManager):
 
     def process_queue(self):
         processed_items = []
-        print("\n🔄 Iniciando procesamiento de cola...")
-        
-        while not self.priority_queue.empty():
-            message = self.priority_queue.get()
-            if message is None:
-                continue
+        print("\n🔄 Iniciando procesamiento de colas por prioridad...")
+
+        for priority_level in ['high', 'medium', 'low']:
+            print(f"\n📥 Procesando cola '{priority_level}'...")
+            while True:
+                message = self.priority_queue.get()
+                if message is None:
+                    print(f"✅ Cola '{priority_level}' procesada.")
+                    break
+
+                msg_priority_level, data = message
+                notification_type, user_id, email, notification_data = data
+                print(f"\n📨 Procesando mensaje:")
+                print(f"- Tipo: {notification_type}")
+                print(f"- Prioridad: {msg_priority_level}")
+                print(f"- Usuario: {user_id}")
+                print(f"- Email: {email}")
+                print(f"- Datos: {notification_data}")
                 
-            priority, notification_type, user_id, email, data = message
-            print(f"\n📨 Procesando mensaje:")
-            print(f"- Tipo: {notification_type}")
-            print(f"- Prioridad: {priority}")
-            print(f"- Usuario: {user_id}")
-            print(f"- Email: {email}")
-            print(f"- Datos: {data}")
-            
-            # Verificar si la notificación ya fue enviada antes de procesarla
-            if self.check_existing_notification(notification_type, user_id, **data):
-                print(f"⚠️ Notificación {notification_type} para {user_id} ya fue enviada anteriormente")
-                continue
+                # Verificar si la notificación ya fue enviada antes de procesarla
+                if self.check_existing_notification(notification_type, user_id, **notification_data):
+                    print(f"⚠️ Notificación {notification_type} para {user_id} ya fue enviada anteriormente")
+                    continue
                 
-            processed_items.append((notification_type, priority))
-            
-            try:
-                # Procesar según tipo
-                if notification_type == "Reminder":
-                    print(f"\n📅 Enviando recordatorio...")
-                    self.send_reminder_notification(user_id, email, **data)
-                elif notification_type == "Offer":
-                    print(f"\n🏷️ Enviando oferta...")
-                    self.send_offer_notification(user_id, email, **data)
-                elif notification_type == "Subscription":
-                    print(f"\n📫 Procesando suscripción...")
-                    print(f"Subscription processed for {user_id}")
-                    
-                print(f"✅ Procesado {notification_type} con prioridad {priority}")
-            except Exception as e:
-                print(f"❌ Error procesando notificación: {str(e)}")
-            
-        print(f"\n✅ Procesamiento de cola completado. Items procesados: {len(processed_items)}")
+                processed_items.append((notification_type, msg_priority_level))
+                
+                try:
+                    # Procesar según tipo
+                    if notification_type == "Reminder":
+                        print(f"\n📅 Enviando recordatorio...")
+                        self.send_reminder_notification(user_id, email, **notification_data)
+                    elif notification_type == "Offer":
+                        print(f"\n🏷️ Enviando oferta...")
+                        self.send_offer_notification(user_id, email, **notification_data)
+                    elif notification_type == "Subscription":
+                        print(f"\n📫 Procesando suscripción...")
+                        print(f"Subscription processed for {user_id}")
+                        
+                    print(f"✅ Procesado {notification_type} con prioridad {msg_priority_level}")
+                except Exception as e:
+                    print(f"❌ Error procesando notificación: {str(e)}")
+
+        print(f"\n✅ Procesamiento de colas completado. Items procesados: {len(processed_items)}")
         return processed_items
 
     def send_reminder_notification(self, user_id, email, **data):
