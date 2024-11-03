@@ -50,9 +50,8 @@ El sistema utiliza:
 
 - **AWS SQS**:
 - **Ventajas**:
-  - ✅ Serverless y totalmente administrado
   - ✅ Integración nativa con AWS
-  - ✅ Escalado automático (no gestión se servidores)
+  - ✅ Escalado automático (no gestión de servidores)
   - ✅ Capa gratuita disponible
   - ✅ Más simple de implementar
   - ✅ Es distribuido
