@@ -24,13 +24,6 @@ El sistema utiliza:
 - **AWS SNS**: Envío de notificaciones por email
 - **AWS DynamoDB**: Almacenamiento de datos de notificaciones
 
-### Flujo de Trabajo
-
-1. Las notificaciones se envían a SQS con prioridades
-2. El sistema procesa mensajes según prioridad
-3. Se envían notificaciones vía SNS
-4. Se almacena el registro en DynamoDB
-
 ### Flujo de Trabajo Actualizado
 
 1. Se genera una notificación (Reminder, Offer o Subscription)
@@ -156,7 +149,6 @@ AWS SQS ha sido seleccionado debido a su facilidad de uso en sistemas distribuid
   - `get()`: Recupera mensaje más prioritario
   - `empty()`: Verifica si la cola está vacía
 
-### 3. Diagrama de Flujo
 
 # Fuentes
 
